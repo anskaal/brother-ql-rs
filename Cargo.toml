@@ -9,10 +9,6 @@ license = "MIT"
 repository = "https://github.com/petschekr/brother-ql-rs"
 
 [dependencies]
-rusttype = "0.8.2"
-image = "0.22.4"
-rusb = "0.5"
+rusttype = "0.9.3"
+rusb = "0.9.1"
 error-chain = "0.12.1"
-
-#[replace]
-#"libusb-sys:0.2.3"= { git = "https://github.com/cmsd2/libusb-sys/" }

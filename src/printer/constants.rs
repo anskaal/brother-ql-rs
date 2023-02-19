@@ -149,6 +149,13 @@ pub fn label_data(width: u8, length: Option<u8>) -> Option<Label> {
 	}
 }
 
+pub static BLACK_PIXEL: u8 = 0;
+pub static WHITE_PIXEL: u8 = 1;
+
+/// The static length of a line on all Brother QL printers
+pub const RASTER_LINE_LENGTH: usize = 90;
+pub const MAX_PIXEL_WIDTH: usize = RASTER_LINE_LENGTH * 8;
+
 /// USB Vendor ID for Brother QL printers
 pub const VENDOR_ID: u16 = 0x04F9;
 

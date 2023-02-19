@@ -4,8 +4,23 @@
 
 use std::time::Duration;
 use std::thread;
+use crate::printer::command::Command;
+use crate::printer::command::Command::{GetStatus, StartPrint};
+use crate::printer::constants::RASTER_LINE_LENGTH;
+use crate::printer::media_type::MediaType;
+use crate::printer::job::PrintJob;
+use crate::printer::setting::{PrinterSetting, Resolution};
+use crate::printer::setting::PrinterSetting::{AutoCut, HighResMode, NormalResMode, SwitchToRasterMode};
+use crate::printer::model::PrinterModel;
+use crate::printer::status_type::StatusType;
 
 pub mod constants;
+mod model;
+mod status_type;
+mod media_type;
+pub mod setting;
+pub mod job;
+mod command;
 
 error_chain! {
 	foreign_links {
@@ -22,13 +37,11 @@ pub mod status {
 	//! * Loaded media
 	//! * Current operation
 	//! * Any errors that have occurred
+	use crate::printer::media_type::MediaType;
+	use crate::printer::model::PrinterModel;
+	use crate::printer::status_type::StatusType;
 	use super::constants::*;
-	#[derive(Debug)]
-	pub enum MediaType {
-		None,
-		ContinuousTape,
-		DieCutLabels,
-	}
+
 
 	#[derive(Debug)]
 	pub struct Media {
@@ -48,18 +61,10 @@ pub mod status {
 		}
 	}
 
-	#[derive(Debug, PartialEq)]
-	pub enum StatusType {
-		ReplyToStatusRequest,
-		PrintingCompleted,
-		ErrorOccurred,
-		Notification,
-		PhaseChange,
-	}
 
 	#[derive(Debug)]
 	pub struct Response {
-		pub model: &'static str,
+		pub model: PrinterModel,
 		pub status_type: StatusType,
 		pub errors: Vec<&'static str>,
 		pub media: Media,
@@ -82,8 +87,6 @@ pub fn printers() -> Vec<rusb::Device<rusb::GlobalContext>> {
 		.filter(printer_filter)
 		.collect()
 }
-
-const RASTER_LINE_LENGTH: u8 = 90;
 
 /// The primary interface for dealing with Brother QL printers. Handles all USB communication with the printer.
 pub struct ThermalPrinter<T: rusb::UsbContext> {
@@ -161,17 +164,16 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 	/// printer can print out-of-bounds and even print on parts of the label not originally intended to
 	/// contain content. Your rasterizer will have to figure out, given a media type, which parts of the
 	/// image will appear on the media and resize or shift margins and content accordingly.
-	pub fn print(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<status::Response> {
+	pub fn print(&self, job: &PrintJob) -> Result<status::Response> {
+		let raster_lines: &Vec<[u8; RASTER_LINE_LENGTH as usize]> = &job.lines;
 		let status = self.get_status()?;
 
-		let mode_command = [0x1B, 0x69, 0x61, 1];
-		self.write(&mode_command)?;
+		self.apply_setting(SwitchToRasterMode)?;
 
 		const VALID_FLAGS: u8 = 0x80 | 0x02 | 0x04 | 0x08 | 0x40; // Everything enabled
-		let media_type: u8 = match status.media.media_type {
-			status::MediaType::ContinuousTape => 0x0A,
-			status::MediaType::DieCutLabels => 0x0B,
-			_ => return Err("No media loaded into printer".into())
+		let media_type: u8 = match status.media.media_type.to_byte() {
+			Some(value) => value,
+			None => return Err("No media loaded into printer".into())
 		};
 
 		let mut media_command = [0x1B, 0x69, 0x7A, VALID_FLAGS, media_type, status.media.width, status.media.length, 0, 0, 0, 0, 0x01, 0];
@@ -179,8 +181,12 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		media_command[7..7 + 4].copy_from_slice(&line_count);
 		self.write(&media_command)?;
 
-		self.write(&[0x1B, 0x69, 0x4D, 1 << 6])?; // Enable auto-cut
-		self.write(&[0x1B, 0x69, 0x4B, 1 << 3 | 0 << 6])?; // Enable cut-at-end and disable high res printing
+		self.apply_setting(AutoCut(job.cut_on_end))?;
+		let resolution = match &job.resolution {
+			Resolution::Normal => NormalResMode(job.cut_on_end),
+			Resolution::High => HighResMode(job.cut_on_end)
+		};
+		self.apply_setting(resolution)?;
 
 		let label = self.current_label()?;
 
@@ -188,22 +194,21 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		self.write(&margins_command)?;
 
 		for line in raster_lines.iter() {
-			let mut raster_command = vec![0x67, 0x00, RASTER_LINE_LENGTH];
+			let mut raster_command = vec![0x67, 0x00, RASTER_LINE_LENGTH as u8];
 			raster_command.extend_from_slice(line);
 			self.write(&raster_command)?;
 		}
 
-		let print_command = [0x1A];
-		self.write(&print_command)?;
-
+		self.send_command(StartPrint(true))?;
 		self.read()
 	}
+
 	/// Same as `print()` but will not return until the printer reports that it has finished printing.
-	pub fn print_blocking(&self, raster_lines: Vec<[u8; RASTER_LINE_LENGTH as usize]>) -> Result<()> {
-		self.print(raster_lines)?;
+	pub fn print_blocking(&self, job: &PrintJob) -> Result<()> {
+		self.print(job)?;
 		loop {
 			match self.read() {
-				Ok(ref response) if response.status_type == status::StatusType::PrintingCompleted => break,
+				Ok(ref response) if response.status_type == StatusType::PrintingCompleted => break,
 				_ => thread::sleep(Duration::from_millis(50)),
 			}
 		}
@@ -221,31 +226,17 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 	/// Get the current status of the printer including possible errors, media type, and model name.
 	pub fn get_status(&self) -> Result<status::Response> {
-		let status_command = [0x1B, 0x69, 0x53];
-		self.write(&status_command)?;
+		self.send_command(GetStatus)?;
 		self.read()
 	}
 
 	fn read(&self) -> Result<status::Response> {
-		const RECEIVE_SIZE: usize = 32;
-		let mut response = [0; RECEIVE_SIZE];
-		let bytes_read = self.handle.read_bulk(self.in_endpoint, &mut response, Duration::from_millis(500))?;
-
-		if bytes_read != RECEIVE_SIZE || response[0] != 0x80 {
-			return Err("Invalid response received from printer".into());
-		}
-
-		let model = match response[4] {
-			0x4F => "QL-500/550",
-			0x31 => "QL-560",
-			0x32 => "QL-570",
-			0x33 => "QL-580N",
-			0x51 => "QL-650TD",
-			0x35 => "QL-700",
-			0x50 => "QL-1050",
-			0x34 => "QL-1060N",
-			_ => "Unknown"
+		let response = match self.read_bulk() {
+			Ok(bytes) => bytes,
+			Err(error) => return Err(error)
 		};
+
+		let model = PrinterModel::from_byte(response[4]);
 
 		let mut errors = Vec::new();
 
@@ -267,21 +258,8 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		let width = response[10];
 		let length = response[17];
 
-		let media_type = match response[11] {
-			0x0A => status::MediaType::ContinuousTape,
-			0x0B => status::MediaType::DieCutLabels,
-			_    => status::MediaType::None,
-		};
-
-		let status_type = match response[18] {
-			0x00 => status::StatusType::ReplyToStatusRequest,
-			0x01 => status::StatusType::PrintingCompleted,
-			0x02 => status::StatusType::ErrorOccurred,
-			0x05 => status::StatusType::Notification,
-			0x06 => status::StatusType::PhaseChange,
-			// Will never occur
-			_ => status::StatusType::Notification
-		};
+		let media_type = MediaType::from_byte(response[11]);
+		let status_type = StatusType::from_byte(response[18]);
 
 		Ok(status::Response {
 			model,
@@ -295,44 +273,33 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		})
 	}
 
+	fn read_bulk(&self) -> Result<[u8; 32]> {
+		const RECEIVE_SIZE: usize = 32;
+		let mut response = [0; RECEIVE_SIZE];
+		let bytes_read = self.handle.read_bulk(
+			self.in_endpoint,
+			&mut response,
+			Duration::from_millis(500)
+		)?;
+
+		if bytes_read != RECEIVE_SIZE || response[0] != 0x80 {
+			return Err("Invalid response received from printer".into());
+		}
+		return Ok(response)
+	}
+
+	fn apply_setting(&self, setting: PrinterSetting) -> Result<()> {
+		let sequence = setting.get_byte_sequence();
+		self.write(&sequence)
+	}
+
+	fn send_command(&self, command: Command) -> Result<()> {
+		let sequence = command.get_byte_sequence();
+		self.write(sequence)
+	}
+
 	fn write(&self, data: &[u8]) -> Result<()> {
 		self.handle.write_bulk(self.out_endpoint, data, Duration::from_millis(500))?;
 		Ok(())
 	}
-}
-
-#[cfg(test)]
-mod tests {
-	use crate::printer::{ printers, ThermalPrinter };
-	#[test]
-	fn connect() {
-		let printer_list = printers();
-		assert!(printer_list.len() > 0, "No printers found");
-		let mut printer = ThermalPrinter::new(printer_list.into_iter().next().unwrap()).unwrap();
-		printer.init().unwrap();
-	}
-
-	use std::path::PathBuf;
-    #[test]
-	#[ignore]
-    fn print() {
-		let printer_list = printers();
-		assert!(printer_list.len() > 0, "No printers found");
-		let mut printer = ThermalPrinter::new(printer_list.into_iter().next().unwrap()).unwrap();
-		let label = printer.init().unwrap().media.to_label();
-
-        let mut rasterizer = crate::text::TextRasterizer::new(
-            label,
-            PathBuf::from("./Space Mono Bold.ttf")
-        );
-        rasterizer.set_second_row_image(PathBuf::from("./logos/BuildGT Mono.png"));
-        let lines = rasterizer.rasterize(
-            "Ryan Petschek",
-            Some("Computer Science"),
-			1.2,
-			false
-        );
-
-		dbg!(printer.print(lines).unwrap());
-    }
 }

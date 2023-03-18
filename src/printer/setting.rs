@@ -17,13 +17,13 @@ impl PrinterSetting {
     pub fn get_byte_sequence(&self) -> [u8; 4] {
         match self {
             PrinterSetting::SwitchToRasterMode => [0x1B, 0x69, 0x61, 0x1],
-            PrinterSetting::AutoCut(on) => [0x1B, 0x69, 0x4D, if *on { 0x40 } else { 0x0 }],
+            PrinterSetting::AutoCut(on) => [0x1B, 0x69, 0x4D, if *on { 0x0 } else { 0x40 }],
             PrinterSetting::NormalResMode(cut) => {
-                let cut_bit = if *cut { 1 } else { 0 };
+                let cut_bit = if *cut { 0 } else { 1 };
                 [0x1B, 0x69, 0x4B, cut_bit << 3]
             }
             PrinterSetting::HighResMode(cut) => {
-                let cut_bit = if *cut { 1 } else { 0 };
+                let cut_bit = if *cut { 0 } else { 1 };
                 [0x1B, 0x69, 0x4B, cut_bit << 3 | 1 << 6]
             }
         }

@@ -1,0 +1,9 @@
+[package]
+name = "example-print-image"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+png = "0.17.7"
+brother-ql-rs = { path = "../../brother-ql-rs" }

@@ -10,7 +10,7 @@ use crate::printer::constants::RASTER_LINE_LENGTH;
 use crate::printer::media_type::MediaType;
 use crate::printer::job::PrintJob;
 use crate::printer::setting::{PrinterSetting, Resolution};
-use crate::printer::setting::PrinterSetting::{AutoCut, HighResMode, NormalResMode, SwitchToRasterMode};
+use crate::printer::setting::PrinterSetting::{MirrorOrCut, HighResMode, NormalResMode, SwitchToRasterMode};
 use crate::printer::model::PrinterModel;
 use crate::printer::status_type::StatusType;
 
@@ -46,8 +46,8 @@ pub mod status {
 	#[derive(Debug)]
 	pub struct Media {
 		pub media_type: MediaType,
-		pub width: u8,
-		pub length: u8,
+		pub width: u8, // unit: mm
+		pub length: u8, // unit: mm
 	}
 	impl Media {
 		pub fn to_label(&self) -> Label {
@@ -166,34 +166,20 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 	/// image will appear on the media and resize or shift margins and content accordingly.
 	pub fn print(&self, job: &PrintJob) -> Result<status::Response> {
 		let raster_lines: &Vec<[u8; RASTER_LINE_LENGTH as usize]> = &job.lines;
-		let status = self.get_status()?;
 
 		self.apply_setting(SwitchToRasterMode)?;
+		self.print_info(raster_lines)?;
 
-		const VALID_FLAGS: u8 = 0x80 | 0x02 | 0x04 | 0x08 | 0x40; // Everything enabled
-		let media_type: u8 = match status.media.media_type.to_byte() {
-			Some(value) => value,
-			None => return Err("No media loaded into printer".into())
-		};
-
-		let mut media_command = [0x1B, 0x69, 0x7A, VALID_FLAGS, media_type, status.media.width, status.media.length, 0, 0, 0, 0, 0x01, 0];
-		let line_count = (raster_lines.len() as u32).to_le_bytes();
-		media_command[7..7 + 4].copy_from_slice(&line_count);
-		self.write(&media_command)?;
-
-		self.apply_setting(AutoCut(job.cut_on_end))?;
+		self.apply_setting(MirrorOrCut(job.mirrored, job.cut_on_end))?;
 		let resolution = match &job.resolution {
 			Resolution::Normal => NormalResMode(job.cut_on_end),
 			Resolution::High => HighResMode(job.cut_on_end)
 		};
 		self.apply_setting(resolution)?;
 
-		let mirroring = PrinterSetting::Mirror(job.mirrored);
-		self.apply_setting(mirroring)?;
-
 		let label = self.current_label()?;
 
-		let margins_command = [0x1B, 0x69, 0x64, label.feed_margin, 0];
+		let margins_command = [0x1B, 0x69, 0x64, label.feed_margin, 0x00];
 		self.write(&margins_command)?;
 
 		for line in raster_lines.iter() {
@@ -204,6 +190,28 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 		self.send_command(StartPrint(true))?;
 		self.read()
+	}
+
+	/// Print information command
+	/// Flags:
+	/// 	PI_KIND		0x02	Paper type
+	/// 	PI_WIDTH	0x04	Paper width
+	/// 	PI_LENGTH	0x08	Paper length
+	/// 	PI_QUALITY	0x40	Give priority to print quality
+	/// 	PI_RECOVER	0x80	Always ON
+	fn print_info(&self, raster_lines: &Vec<[u8; RASTER_LINE_LENGTH]>) -> Result<()> {
+		let status = self.get_status()?;
+		const VALID_FLAGS: u8 = 0x80 | 0x02 | 0x04 | 0x08 | 0x40; // Everything enabled
+		let media_type: u8 = match status.media.media_type.to_byte() {
+			Some(value) => value,
+			None => return Err("No media loaded into printer".into())
+		};
+
+		let starting_page = 0x01; // Starting page: 0; Other pages: 1.
+		let mut media_command = [0x1B, 0x69, 0x7A, VALID_FLAGS, media_type, status.media.width, status.media.length, 0, 0, 0, 0, starting_page, 0];
+		let line_count = (raster_lines.len() as u32).to_le_bytes();
+		media_command[7..7 + 4].copy_from_slice(&line_count);
+		self.write(&media_command)
 	}
 
 	/// Same as `print()` but will not return until the printer reports that it has finished printing.
@@ -293,11 +301,13 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 
 	fn apply_setting(&self, setting: PrinterSetting) -> Result<()> {
 		let sequence = setting.get_byte_sequence();
+		println!("Setting: {:x?}", sequence);
 		self.write(&sequence)
 	}
 
 	fn send_command(&self, command: Command) -> Result<()> {
 		let sequence = command.get_byte_sequence();
+		println!("Command: {:x?}", sequence);
 		self.write(sequence)
 	}
 

@@ -1,12 +1,11 @@
 
 pub enum PrinterSetting {
     SwitchToRasterMode,
-    AutoCut(bool),
+    MirrorOrCut(bool, bool),
     HighResMode(bool),
     NormalResMode(bool),
     PowerOnWhenConnected(bool),
     SleepTimer(SleepTimerValue),
-    Mirror(bool)
 }
 
 pub enum SleepTimerValue {
@@ -30,14 +29,18 @@ impl PrinterSetting {
     pub fn get_byte_sequence(&self) -> [u8; 4] {
         match self {
             PrinterSetting::SwitchToRasterMode => [0x1B, 0x69, 0x61, 0x01],
-            PrinterSetting::AutoCut(on) => [0x1B, 0x69, 0x4D, if *on { 0x0 } else { 0x40 }],
+            PrinterSetting::MirrorOrCut(mirror, auto_cut) => {
+                let mirror_bit = if *mirror { 1 } else { 0 };
+                let cut_bit = if *auto_cut { 1 } else { 0 };
+                [0x1B, 0x69, 0x4d, mirror_bit << 7 | cut_bit << 6]
+            },
             PrinterSetting::NormalResMode(cut) => {
-                let cut_bit = if *cut { 0 } else { 1 };
+                let cut_bit = if *cut { 1 } else { 0 };
                 [0x1B, 0x69, 0x4B, cut_bit << 3]
             }
             PrinterSetting::HighResMode(cut) => {
-                let cut_bit = if *cut { 0 } else { 1 };
-                [0x1B, 0x69, 0x4B, cut_bit << 3 | 1 << 6]
+                let cut_bit = if *cut { 1 } else { 0 };
+                [0x1B, 0x69, 0x4b, cut_bit << 3 | 1 << 6]
             }
             PrinterSetting::PowerOnWhenConnected(on) => {
                 [0x1B, 0x69, 0x70, if *on { 0x00 } else { 0x01 }]
@@ -53,9 +56,6 @@ impl PrinterSetting {
                     SleepTimerValue::TurnOffAfter60Minutes => 0x06,
                 };
                 [0x1B, 0x69, 0x70, last_byte]
-            }
-            PrinterSetting::Mirror(mirrored) => {
-                [0x1B, 0x69, 0x4d, if *mirrored { 0x40 } else { 0xc0 } ]
             }
         }
     }

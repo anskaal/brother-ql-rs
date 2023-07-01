@@ -188,6 +188,9 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 		};
 		self.apply_setting(resolution)?;
 
+		let mirroring = PrinterSetting::Mirror(job.mirrored);
+		self.apply_setting(mirroring)?;
+
 		let label = self.current_label()?;
 
 		let margins_command = [0x1B, 0x69, 0x64, label.feed_margin, 0];

@@ -1,0 +1,10 @@
+[package]
+name = "example-print-barcode"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+barcoders = {version = "1.0.2", features = ["image", "svg"]}
+brother-ql-rs = { path = "../../brother-ql-rs" }
+png = "0.17.7"

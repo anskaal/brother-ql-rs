@@ -18,14 +18,12 @@ impl <'a> PrintJob<'a> {
                 let mut data: [u8; RASTER_LINE_LENGTH] = chunk.try_into().unwrap();
                 data.reverse();
                 let reverse = data.map(|byte|{ byte.reverse_bits() });
-                let inverted = reverse.map(|px|{ !px });
-                lines.push(inverted);
+                lines.push(reverse);
             }
         } else {
             for (_, chunk) in chunks.enumerate() {
                 let data: [u8; RASTER_LINE_LENGTH] = chunk.try_into().unwrap();
-                let inverted = data.map(|px|{ !px });
-                lines.push(inverted);
+                lines.push(data);
             }
         }
         lines

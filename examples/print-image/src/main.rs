@@ -7,12 +7,17 @@ use brother_ql_rs::printer::{printers, ThermalPrinter};
 use brother_ql_rs::printer::job::PrintJob;
 use brother_ql_rs::printer::setting::Resolution;
 
-/// The static length of a line on all Brother QL printers
-pub const RASTER_LINE_LENGTH: usize = 90;
-pub const MAX_PIXEL_WIDTH: usize = RASTER_LINE_LENGTH * 8;
-
 fn main() {
-    let file = File::open(format!("img.png")).unwrap();
+
+    let mut image = ImageBuffer::<Rgb<u8>>::new(WIDTH, HEIGHT);
+
+    // set a central pixel to white
+    image.get_pixel_mut(5, 5).data = [255, 255, 255];
+
+    // write it out to a file
+    image.save("output.png").unwrap();
+
+    let file = File::open(format!("output.png")).unwrap();
 
     let decoder = png::Decoder::new(file);
     let mut reader = decoder.read_info().unwrap();
@@ -23,19 +28,9 @@ fn main() {
     let bytes_total = bytes.len();
     println!("bytes: {}", bytes_total);
 
-    let mut lines: Vec<[u8; RASTER_LINE_LENGTH]> = vec![];
-    let chunks = bytes.chunks(RASTER_LINE_LENGTH);
-    for (_, chunk) in chunks.enumerate() {
-        let mut data: [u8; RASTER_LINE_LENGTH] = chunk.try_into().unwrap();
-        data.reverse();
-        let reverse = data.map(|byte|{ byte.reverse_bits() });
-        let inverted = reverse.map(|px|{ !px });
-        lines.push(inverted);
-    }
-
     let job = PrintJob {
         cut_on_end: true,
-        lines,
+        bytes,
         resolution: Resolution::Normal,
         mirrored: true
     };

@@ -165,7 +165,7 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 	/// contain content. Your rasterizer will have to figure out, given a media type, which parts of the
 	/// image will appear on the media and resize or shift margins and content accordingly.
 	pub fn print(&self, job: &PrintJob) -> Result<status::Response> {
-		let raster_lines: &Vec<[u8; RASTER_LINE_LENGTH as usize]> = &job.lines;
+		let raster_lines: &Vec<[u8; RASTER_LINE_LENGTH]> = &job.get_raster_lines();
 
 		self.apply_setting(SwitchToRasterMode)?;
 		self.print_info(raster_lines)?;

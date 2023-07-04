@@ -1,9 +1,9 @@
 [package]
-name = "example-print-barcode"
+name = "example-qrcode"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-barcoders = "1.0.2"
+qrcode = "0.12.0"
 brother-ql-rs = { path = "../../brother-ql-rs" }

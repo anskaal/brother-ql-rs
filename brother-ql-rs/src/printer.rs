@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::thread;
 use crate::printer::command::Command;
 use crate::printer::command::Command::{GetStatus, StartPrint};
-use crate::printer::constants::RASTER_LINE_LENGTH;
+use crate::printer::constants::{MAX_PIXEL_WIDTH, RASTER_LINE_LENGTH};
 use crate::printer::media_type::MediaType;
 use crate::printer::job::PrintJob;
 use crate::printer::setting::{PrinterSetting, Resolution};
@@ -314,5 +314,25 @@ impl<T: rusb::UsbContext> ThermalPrinter<T> {
 	fn write(&self, data: &[u8]) -> Result<()> {
 		self.handle.write_bulk(self.out_endpoint, data, Duration::from_millis(500))?;
 		Ok(())
+	}
+}
+
+pub trait Printable {
+	fn into_raster_line(self) -> [u8; RASTER_LINE_LENGTH];
+}
+
+impl Printable for [bool; MAX_PIXEL_WIDTH] {
+
+	fn into_raster_line(self) -> [u8; RASTER_LINE_LENGTH]{
+		let mut line = [0x0u8; RASTER_LINE_LENGTH];
+		for (x, &value) in self.iter().enumerate() {
+			let index = x / 8;
+			let sub_index = x % 8;
+			let existing_value = line[index];
+			let bit: u8 = if value { 0x1 } else { 0x0};
+			let byte = bit << (7 - sub_index);
+			line[index] = existing_value | byte;
+		}
+		line
 	}
 }

@@ -4,7 +4,7 @@ extern crate brother_ql_rs;
 use barcoders::sym::ean13::EAN13;
 use brother_ql_rs::printer::constants::{MAX_PIXEL_WIDTH, RASTER_LINE_LENGTH};
 use brother_ql_rs::printer::job::PrintJob;
-use brother_ql_rs::printer::{printers, ThermalPrinter};
+use brother_ql_rs::printer::{Printable, printers, ThermalPrinter};
 use brother_ql_rs::printer::setting::Resolution;
 
 const BAR_HEIGHT: usize = 80;
@@ -19,29 +19,18 @@ fn main() {
         panic!("The barcode exceeds the maximum image width.")
     }
 
-    let bg = 0x0;
-    let fg = 0x1;
-
-    let mut line = [bg; RASTER_LINE_LENGTH];
-
+    let mut row = [false; MAX_PIXEL_WIDTH];
     for (i, &b) in encoded.iter().enumerate() {
-        let c = if b == 0 { bg } else { fg };
-
         for p in 0..BAR_WIDTH {
             let x = offset + (i * BAR_WIDTH) + p;
-            let index = x / 8;
-            let sub_index = x % 8;
-            let existing_value = line[index];
-            let bit_value = c << (7 - sub_index);
-            line[index] = existing_value | bit_value;
+            row[x] = b != 0;
         }
     }
 
-    let bytes = line.repeat(BAR_HEIGHT);
-
+    let line = vec![row.into_raster_line()];
     let job = PrintJob {
         cut_on_end: true,
-        bytes: &bytes,
+        raster_lines: line.repeat(BAR_HEIGHT),
         resolution: Resolution::Normal,
         mirrored: true,
     };

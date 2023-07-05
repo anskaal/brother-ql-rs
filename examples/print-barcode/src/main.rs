@@ -19,11 +19,11 @@ fn main() {
         panic!("The barcode exceeds the maximum image width.")
     }
 
-    let mut row = [false; MAX_PIXEL_WIDTH];
+    let mut row = [true; MAX_PIXEL_WIDTH];
     for (i, &b) in encoded.iter().enumerate() {
         for p in 0..BAR_WIDTH {
             let x = offset + (i * BAR_WIDTH) + p;
-            row[x] = b != 0;
+            row[x] = b == 0;
         }
     }
 

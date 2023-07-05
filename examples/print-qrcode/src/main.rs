@@ -15,10 +15,10 @@ fn main() {
 
     let mut lines: Vec<[u8; RASTER_LINE_LENGTH]> = vec![];
     for y in 0..size {
-        let mut row = [false; MAX_PIXEL_WIDTH];
+        let mut row = [true; MAX_PIXEL_WIDTH];
         for x in 0..size {
             for p in 0..BLOCK_SIZE {
-                row[offset + x * BLOCK_SIZE + p] = data[y * size + x] == Color::Dark;
+                row[offset + x * BLOCK_SIZE + p] = data[y * size + x] == Color::Light;
             }
         }
 

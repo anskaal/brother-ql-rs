@@ -324,14 +324,14 @@ pub trait Printable {
 impl Printable for [bool; MAX_PIXEL_WIDTH] {
 
 	fn into_raster_line(self) -> [u8; RASTER_LINE_LENGTH]{
-		let mut line = [0x0u8; RASTER_LINE_LENGTH];
+		let mut line = [!0u8; RASTER_LINE_LENGTH];
 		for (x, &value) in self.iter().enumerate() {
 			let index = x / 8;
 			let sub_index = x % 8;
 			let existing_value = line[index];
-			let bit: u8 = if value { 0x1 } else { 0x0};
+			let bit: u8 = if value { 0x1 } else { 0x0 };
 			let byte = bit << (7 - sub_index);
-			line[index] = existing_value | byte;
+			line[index] = existing_value & !byte;
 		}
 		line
 	}

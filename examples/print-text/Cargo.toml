@@ -1,0 +1,9 @@
+[package]
+name = "example-text"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+noto-sans-mono-bitmap = "0.2.0"
+brother-ql-rs = { path = "../../brother-ql-rs" }
